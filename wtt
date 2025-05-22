@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+import math
+import uuid
+import json
+import os.path
+import textwrap
+import datetime as dt
+from copy import deepcopy
+
+import click
+from tabulate import tabulate
+
+DATETIME_FORMAT = '%d.%m.%Y %H:%M'
+
+# TODO Allow to change it with a CLI option or/and env var because of different window sizes.
+# (or just remove this pretty-print feature at all)
+PPRINT_GRIDCELL_MAXLENGTH = 40
+
+
+class InvalidStoreSchema(Exception):
+    pass
+
+
+class InvalidOperation(Exception):
+    pass
+
+
+class Store:
+
+    def __init__(self):
+        # TODO Allow to specify custom path as a parameter or env var and fallback to ~/.local/share/wttdb.json
+        self._path = 'db.json'
+
+    def init(self):
+        if os.path.exists(self._path):
+            with open(self._path, 'r') as file:
+                self._data = json.load(file)
+
+            if not (
+                isinstance(self._data, dict)
+                and isinstance(self._data.get('sessions'), list)
+                and isinstance(self._data.get('labels'), list)
+            ):
+                raise InvalidStoreSchema()
+        else:
+            self._data = {'sessions': [], 'labels': []}
+            self.flush()
+
+    def flush(self):
+        with open(self._path, 'w') as file:
+            json.dump(self._data, file)
+
+    def get_all_sessions(self):
+        sessions = deepcopy(self._data['sessions'])
+        sessions.sort(key=lambda x: x['start_at'], reverse=True)
+        return sessions
+
+    def create_session(self, labels):
+        not_existing_labels = set(labels) - set(self._data['labels'])
+        if not_existing_labels:
+            not_existing_labels_str = ', '.join(not_existing_labels)
+            raise InvalidOperation(f'The following labels were not found: {not_existing_labels_str}.')
+
+        session_id = str(uuid.uuid4())
+        start_at = int(dt.datetime.now().timestamp())
+        self._data['sessions'].append({'id': session_id, 'start_at': start_at, 'labels': labels})
+        return session_id
+
+    def end_session(self, session_id, note):
+        if session_id:
+            session = next((x for x in self._data['sessions'] if x['id'] == session_id), None)
+            if not session:
+                raise InvalidOperation(f'The session {session_id} was not found.')
+            if 'end_at' in session:
+                raise InvalidOperation(f'The session {session_id} has already ended.')
+        else:
+            sessions = sorted(
+                filter(lambda x: 'end_at' not in x, self._data['sessions']),
+                key=lambda x: x['start_at'],
+                reverse=True,
+            )
+            if sessions:
+                session = sessions[0]
+            else:
+                raise InvalidOperation('There is no running session.')
+
+        end_at = int(dt.datetime.now().timestamp())
+        session['end_at'] = end_at
+
+        if note:
+            session['note'] = note
+
+        return session['id']
+
+    def get_all_labels(self):
+        return list(self._data['labels'])
+
+    def create_label(self, name):
+        if name in self._data['labels']:
+            raise InvalidOperation(f'A label with the name "{name}" has been already created.')
+
+        self._data['labels'].append(name)
+
+    def delete_label(self, name):
+        labels = self._data['labels']
+        try:
+            labels.pop(labels.index(name))
+        except ValueError:
+            raise InvalidOperation(f'The label "{name}" was not found.')
+
+@click.group()
+@click.pass_context
+def cli(ctx):
+    """A time tracker. Open a new session, do your job, close the session with a note."""
+    try:
+        store = Store()
+        store.init()
+    except InvalidStoreSchema:
+        click.echo('Invalid schema of the store.', err=True)
+        raise click.Abort()
+    except Exception:
+        click.echo('Could not initialize store.', err=True)
+        raise click.Abort()
+
+    context = {'store': store}
+    ctx.obj = context
+
+@cli.group('session', help='Manage sessions.')
+def cli_session():
+    pass
+
+@cli_session.command('pprint', help='Print a pretty representation of all sessions info.')
+@click.pass_context
+def cli_session_list(ctx):
+    store = ctx.obj['store']
+    sessions = store.get_all_sessions()
+    if not sessions:
+        return
+
+    total_duration = 0
+
+    lines = []
+    headers = ['ID', 'Start', 'Labels', 'End', 'Duration', 'Note']
+    for session in sessions:
+        start_at = dt.datetime.fromtimestamp(session['start_at'])
+        columns = [
+            session['id'],
+            start_at.strftime(DATETIME_FORMAT),
+            ', '.join(session['labels']),
+        ]
+
+        if 'end_at' in session:
+            end_at = dt.datetime.fromtimestamp(session['end_at'])
+            columns.append(end_at.strftime(DATETIME_FORMAT))
+
+            delta = end_at - start_at
+            duration = math.ceil(delta.total_seconds() / 60)
+            total_duration += duration
+            columns.append(f'{duration} mins')
+
+            note = session.get('note', '')
+            if len(note) > PPRINT_GRIDCELL_MAXLENGTH:
+                note = '\n'.join(textwrap.wrap(note, width=PPRINT_GRIDCELL_MAXLENGTH))
+
+            columns.append(note)
+        else:
+            columns.extend(('', '', ''))
+
+        lines.append(columns)
+
+    table = tabulate(lines, headers=headers, tablefmt='simple_grid')
+    totals = '\n'.join((
+        # TODO Display hours if total_duration >= 60.
+        # TODO Display total duration per label as well.
+        f'Total duration of ended sessions: {total_duration} minutes.',
+    ))
+    click.echo(table + '\n' + totals)
+
+@cli_session.command('create', help='Create a new session.')
+@click.option('-l', 'labels', multiple=True, help='A way to categorize sessions. You can provide several ones.')
+@click.pass_context
+def cli_session_create(ctx, labels):
+    store = ctx.obj['store']
+    try:
+        session_id = store.create_session(labels)
+        store.flush()
+        click.echo(session_id)
+    except InvalidOperation as exc:
+        click.echo(str(exc), err=True)
+
+@cli_session.command('end', help='End a running session.')
+@click.option(
+    '--id', 'session_id',
+    help='A running session identifier. If not provided, the running session that was created last will be ended.',
+)
+@click.option('--note', help='Leave a message describing what you\'ve done.')
+@click.pass_context
+def cli_session_end(ctx, session_id, note):
+    store = ctx.obj['store']
+    try:
+        session_id = store.end_session(session_id, note)
+        store.flush()
+        click.echo(f'The session {session_id} was successfully ended.')
+    except InvalidOperation as exc:
+        click.echo(str(exc), err=True)
+
+@cli.group('label', help='Manage labels.')
+def cli_label():
+    pass
+
+@cli_label.command('list', help='Display all available labels.')
+@click.pass_context
+def cli_label_list(ctx):
+    labels = ctx.obj['store'].get_all_labels()
+    labels_str = '\t'.join(labels)
+    if labels_str:
+        click.echo(labels_str)
+
+@cli_label.command('create', help='Create a new label.')
+@click.argument('name')
+@click.pass_context
+def cli_label_create(ctx, name):
+    store = ctx.obj['store']
+    try:
+        store.create_label(name)
+        store.flush()
+        click.echo(f'A new label "{name}" is created.')
+    except InvalidOperation as exc:
+        click.echo(str(exc), err=True)
+
+@cli_label.command('delete', help='Delete an existing label.')
+@click.argument('name')
+@click.pass_context
+def cli_label_delete(ctx, name):
+    store = ctx.obj['store']
+    try:
+        store.delete_label(name)
+        store.flush()
+        click.echo(f'The label "{name}" was successfully deleted.')
+    except InvalidOperation as exc:
+        click.echo(str(exc), err=True)
+
+if __name__ == '__main__':
+    cli()

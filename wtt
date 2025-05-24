@@ -10,6 +10,7 @@ from copy import deepcopy
 import click
 from tabulate import tabulate
 
+DATE_FORMAT =  '%d.%m.%Y'
 DATETIME_FORMAT = '%d.%m.%Y %H:%M'
 
 # TODO Allow to change it with a CLI option or/and env var because of different window sizes.
@@ -50,10 +51,20 @@ class Store:
         with open(self._path, 'w') as file:
             json.dump(self._data, file)
 
-    def get_all_sessions(self):
-        sessions = deepcopy(self._data['sessions'])
-        sessions.sort(key=lambda x: x['start_at'], reverse=True)
-        return sessions
+    def get_all_sessions(self, from_dt=None, to_dt=None):
+        from_ = from_dt and int(from_dt.timestamp())
+        to = to_dt and int(to_dt.timestamp())
+
+        def time_condition(session):
+            if from_ and session['start_at'] < from_:
+                return False
+            if to and session['start_at'] > to:
+                return False
+            return True
+
+        result = deepcopy([x for x in self._data['sessions'] if time_condition(x)])
+        result.sort(key=lambda x: x['start_at'])
+        return result
 
     def create_session(self, labels):
         not_existing_labels = set(labels) - set(self._data['labels'])
@@ -121,6 +132,19 @@ class Store:
 
         return session
 
+
+# Most of the time you want to see all today's sessions.
+# It much simpler to write "today" instead of "xx.xx.xx".
+# You don't event have to remember what's the day is today (:
+class ParamTypeDateTime(click.DateTime):
+
+    def convert(self, value, param, ctx):
+        if isinstance(value, str):
+            if value == 'today':
+                return dt.datetime.combine(dt.date.today(), dt.time.min)
+
+        return super().convert(value, param, ctx)
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -143,10 +167,28 @@ def cli_session():
     pass
 
 @cli_session.command('pprint', help='Print a pretty representation of all sessions info.')
+@click.option(
+    '--from', 'from_dt',
+    type=ParamTypeDateTime(formats=[DATE_FORMAT]),
+    metavar='[dd.mm.yyyy or today]',
+    help='Display the sessions which were created this day or later. The range is inclusive.',
+)
+@click.option(
+    '--to', 'to_dt',
+    type=ParamTypeDateTime(formats=[DATE_FORMAT]),
+    metavar='[dd.mm.yyyy or today]',
+    help='Display the sessions which were created this day or earlier. The range is inclusive.',
+)
 @click.pass_context
-def cli_session_list(ctx):
+def cli_session_list(ctx, from_dt, to_dt):
+    # The click.DateTime type always returns a datetime object despite the fact we set a date format.
+    # A datetime object will have 00:00:00 as a time. As we want the range to be inclusive from both sides,
+    # we have to change out the time of "to_dt" to the end of the day.
+    if to_dt:
+        to_dt = dt.datetime.combine(to_dt.date(), dt.time.max)
+
     store = ctx.obj['store']
-    sessions = store.get_all_sessions()
+    sessions = store.get_all_sessions(from_dt=from_dt, to_dt=to_dt)
     if not sessions:
         return
 

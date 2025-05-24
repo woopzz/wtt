@@ -156,7 +156,7 @@ def cli_session_list(ctx):
             delta = end_at - start_at
             duration = math.ceil(delta.total_seconds() / 60)
             total_duration += duration
-            columns.append(f'{duration} mins')
+            columns.append(format_duration(duration))
 
             note = session.get('note', '')
             if len(note) > PPRINT_GRIDCELL_MAXLENGTH:
@@ -170,9 +170,8 @@ def cli_session_list(ctx):
 
     table = tabulate(lines, headers=headers, tablefmt='simple_grid')
     totals = '\n'.join((
-        # TODO Display hours if total_duration >= 60.
         # TODO Display total duration per label as well.
-        f'Total duration of ended sessions: {total_duration} minutes.',
+        f'Total duration of ended sessions: {format_duration(total_duration)}.',
     ))
     click.echo(table + '\n' + totals)
 
@@ -239,6 +238,13 @@ def cli_label_delete(ctx, name):
         click.echo(f'The label "{name}" was successfully deleted.')
     except InvalidOperation as exc:
         click.echo(str(exc), err=True)
+
+def format_duration(duration_ms):
+    hours, mins = divmod(duration_ms, 60)
+    result = f'{mins} minutes'
+    if hours:
+        result = f'{hours} hours ' + result
+    return result
 
 if __name__ == '__main__':
     cli()

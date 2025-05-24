@@ -68,9 +68,7 @@ class Store:
 
     def end_session(self, session_id, note):
         if session_id:
-            session = next((x for x in self._data['sessions'] if x['id'] == session_id), None)
-            if not session:
-                raise InvalidOperation(f'The session {session_id} was not found.')
+            session = self._get_session_by_id(session_id)
             if 'end_at' in session:
                 raise InvalidOperation(f'The session {session_id} has already ended.')
         else:

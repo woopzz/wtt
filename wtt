@@ -92,6 +92,14 @@ class Store:
 
         return session['id']
 
+    def update_session_note(self, session_id, note):
+        session = self._get_session_by_id(session_id)
+
+        if 'end_at' not in session:
+            raise InvalidOperation(f'You cannot add a note to a running session.')
+
+        session['note'] = note
+
     def get_all_labels(self):
         return list(self._data['labels'])
 
@@ -107,6 +115,13 @@ class Store:
             labels.pop(labels.index(name))
         except ValueError:
             raise InvalidOperation(f'The label "{name}" was not found.')
+
+    def _get_session_by_id(self, session_id):
+        session = next((x for x in self._data['sessions'] if x['id'] == session_id), None)
+        if not session:
+            raise InvalidOperation(f'The session {session_id} was not found.')
+
+        return session
 
 @click.group()
 @click.pass_context
@@ -200,6 +215,19 @@ def cli_session_end(ctx, session_id, note):
         session_id = store.end_session(session_id, note)
         store.flush()
         click.echo(f'The session {session_id} was successfully ended.')
+    except InvalidOperation as exc:
+        click.echo(str(exc), err=True)
+
+@cli_session.command('note', help='Add a note to a session.')
+@click.argument('text')
+@click.option('--id', 'session_id', required=True, help='A running session identifier.')
+@click.pass_context
+def cli_session_note(ctx, text, session_id):
+    store = ctx.obj['store']
+    try:
+        store.update_session_note(session_id, text)
+        store.flush()
+        click.echo(f'Updated.')
     except InvalidOperation as exc:
         click.echo(str(exc), err=True)
 

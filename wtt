@@ -48,8 +48,12 @@ class Store:
             self.flush()
 
     def flush(self):
+        # Why not json.dump(file, self._data)?
+        # Because the file will get corrupted, if "self._data" is not JSON-serializable.
+        # It shouldn't happen but it's better to be safe.
+        data = json.dumps(self._data)
         with open(self._path, 'w') as file:
-            json.dump(self._data, file)
+            file.write(data)
 
     def get_all_sessions(self, from_dt=None, to_dt=None):
         from_ = from_dt and int(from_dt.timestamp())

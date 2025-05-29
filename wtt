@@ -55,27 +55,27 @@ class Store:
         with open(self._path, 'w') as file:
             file.write(data)
 
-    def get_all_sessions(self, from_dt=None, to_dt=None):
+    def get_all_sessions(self, from_dt=None, to_dt=None, labels=None):
+        self._ensure_labels_exist(labels)
         from_ = from_dt and int(from_dt.timestamp())
         to = to_dt and int(to_dt.timestamp())
+        label_set = labels and set(labels)
 
-        def time_condition(session):
+        def filter_session(session):
             if from_ and session['start_at'] < from_:
                 return False
             if to and session['start_at'] > to:
                 return False
+            if label_set and session['labels'] and not (label_set & set(session['labels'])):
+                return False
             return True
 
-        result = deepcopy([x for x in self._data['sessions'] if time_condition(x)])
+        result = deepcopy([x for x in self._data['sessions'] if filter_session(x)])
         result.sort(key=lambda x: x['start_at'])
         return result
 
     def create_session(self, labels):
-        not_existing_labels = set(labels) - set(self._data['labels'])
-        if not_existing_labels:
-            not_existing_labels_str = ', '.join(not_existing_labels)
-            raise InvalidOperation(f'The following labels were not found: {not_existing_labels_str}.')
-
+        self._ensure_labels_exist(labels)
         session_id = str(uuid.uuid4())
         start_at = int(dt.datetime.now().timestamp())
         self._data['sessions'].append({'id': session_id, 'start_at': start_at, 'labels': labels})
@@ -136,6 +136,15 @@ class Store:
 
         return session
 
+    def _ensure_labels_exist(self, labels):
+        if not labels:
+            return
+
+        not_existing_labels = set(labels) - set(self._data['labels'])
+        if not_existing_labels:
+            not_existing_labels_str = ', '.join(not_existing_labels)
+            raise InvalidOperation(f'The following labels were not found: {not_existing_labels_str}.')
+
 
 # Most of the time you want to see all today's sessions.
 # It much simpler to write "today" instead of "xx.xx.xx".
@@ -183,8 +192,9 @@ def cli_session():
     metavar='[dd.mm.yyyy or today]',
     help='Display the sessions which were created this day or earlier. The range is inclusive.',
 )
+@click.option('-l', 'labels', multiple=True, help='Display the sessions which have at least one of these labels.')
 @click.pass_context
-def cli_session_list(ctx, from_dt, to_dt):
+def cli_session_list(ctx, from_dt, to_dt, labels):
     # The click.DateTime type always returns a datetime object despite the fact we set a date format.
     # A datetime object will have 00:00:00 as a time. As we want the range to be inclusive from both sides,
     # we have to change out the time of "to_dt" to the end of the day.
@@ -192,7 +202,13 @@ def cli_session_list(ctx, from_dt, to_dt):
         to_dt = dt.datetime.combine(to_dt.date(), dt.time.max)
 
     store = ctx.obj['store']
-    sessions = store.get_all_sessions(from_dt=from_dt, to_dt=to_dt)
+
+    try:
+        sessions = store.get_all_sessions(from_dt=from_dt, to_dt=to_dt, labels=labels)
+    except InvalidOperation as exc:
+        click.echo(str(exc), err=True)
+        raise click.Abort()
+
     if not sessions:
         return
 

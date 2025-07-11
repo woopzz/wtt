@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+import os
 import math
 import uuid
 import json
-import os.path
 import textwrap
 import datetime as dt
 from copy import deepcopy
@@ -13,9 +13,8 @@ from tabulate import tabulate
 DATE_FORMAT =  '%d.%m.%Y'
 DATETIME_FORMAT = '%d.%m.%Y %H:%M'
 
-# TODO Allow to change it with a CLI option or/and env var because of different window sizes.
-# (or just remove this pretty-print feature at all)
-PPRINT_GRIDCELL_MAXLENGTH = 40
+PATH_DATABASE = os.getenv('WTT_PATH_DATABASE', 'db.json')
+PPRINT_NOTE_CELL_MAXLENGTH = int(os.getenv('WTT_PPRINT_NOTE_CELL_MAXLENGTH', '40'))
 
 
 class InvalidStoreSchema(Exception):
@@ -28,9 +27,8 @@ class InvalidOperation(Exception):
 
 class Store:
 
-    def __init__(self):
-        # TODO Allow to specify custom path as a parameter or env var and fallback to ~/.local/share/wttdb.json
-        self._path = 'db.json'
+    def __init__(self, path):
+        self._path = path
 
     def init(self):
         if os.path.exists(self._path):
@@ -161,9 +159,16 @@ class ParamTypeDateTime(click.DateTime):
 @click.group()
 @click.pass_context
 def cli(ctx):
-    """A time tracker. Open a new session, do your job, close the session with a note."""
+    """
+    A time tracker. Open a new session, do your job, close the session with a note.
+
+    You can specify where to store the database via the environment variable WTT_PATH_DATABASE.
+
+    Session notes can be very long so displaying them might brake the table layout.
+    You can specify the note column width via the environment variable WTT_PPRINT_NOTE_CELL_MAXLENGTH.
+    """
     try:
-        store = Store()
+        store = Store(PATH_DATABASE)
         store.init()
     except InvalidStoreSchema:
         click.echo('Invalid schema of the store.', err=True)
@@ -234,8 +239,8 @@ def cli_session_list(ctx, from_dt, to_dt, labels):
             columns.append(format_duration(duration))
 
             note = session.get('note', '')
-            if len(note) > PPRINT_GRIDCELL_MAXLENGTH:
-                note = '\n'.join(textwrap.wrap(note, width=PPRINT_GRIDCELL_MAXLENGTH))
+            if len(note) > PPRINT_NOTE_CELL_MAXLENGTH:
+                note = '\n'.join(textwrap.wrap(note, width=PPRINT_NOTE_CELL_MAXLENGTH))
 
             columns.append(note)
         else:

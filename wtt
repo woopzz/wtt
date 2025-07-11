@@ -145,7 +145,7 @@ class Store:
 
 # Most of the time you want to see all today's sessions.
 # It much simpler to write "today" instead of "xx.xx.xx".
-# You don't event have to remember what's the day is today (:
+# You don't even have to remember what the day is today (:
 class ParamTypeDateTime(click.DateTime):
 
     def convert(self, value, param, ctx):

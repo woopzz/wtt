@@ -43,7 +43,6 @@ class Store:
                 raise InvalidStoreSchema()
         else:
             self._data = {'sessions': [], 'labels': []}
-            self.flush()
 
     def flush(self):
         # Why not json.dump(file, self._data)?

@@ -17,10 +17,6 @@ PATH_DATABASE = os.getenv('WTT_PATH_DATABASE', 'db.json')
 PPRINT_NOTE_CELL_MAXLENGTH = int(os.getenv('WTT_PPRINT_NOTE_CELL_MAXLENGTH', '40'))
 
 
-class InvalidStoreSchema(Exception):
-    pass
-
-
 class InvalidOperation(Exception):
     pass
 
@@ -34,13 +30,6 @@ class Store:
         if os.path.exists(self._path):
             with open(self._path, 'r') as file:
                 self._data = json.load(file)
-
-            if not (
-                isinstance(self._data, dict)
-                and isinstance(self._data.get('sessions'), list)
-                and isinstance(self._data.get('labels'), list)
-            ):
-                raise InvalidStoreSchema()
         else:
             self._data = {'sessions': [], 'labels': []}
 
@@ -169,9 +158,6 @@ def cli(ctx):
     try:
         store = Store(PATH_DATABASE)
         store.init()
-    except InvalidStoreSchema:
-        click.echo('Invalid schema of the store.', err=True)
-        raise click.Abort()
     except Exception:
         click.echo('Could not initialize store.', err=True)
         raise click.Abort()

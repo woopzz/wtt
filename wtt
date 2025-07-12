@@ -112,6 +112,10 @@ class Store:
         labels = self._data['labels']
         try:
             labels.pop(labels.index(name))
+
+            for session in self._data['sessions']:
+                if name in session['labels']:
+                    session['labels'] = [x for x in session['labels'] if x != name]
         except ValueError:
             raise InvalidOperation(f'The label "{name}" was not found.')
 

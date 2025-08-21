@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, Args};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(about=concat!(
@@ -60,16 +60,22 @@ fn get_path_to_store_file() -> String {
 
 fn load_store() -> Store {
     let path = get_path_to_store_file();
-    let file = std::fs::File::open(&path).expect(&format!("Could not open the database file \"{}\".", &path));
+    let file = std::fs::File::open(&path)
+        .expect(&format!("Could not open the database file \"{}\".", &path));
     let reader = std::io::BufReader::new(file);
-    let store: Store = serde_json::from_reader(reader).expect("Could not parse the database file as a JSON data.");
+    let store: Store =
+        serde_json::from_reader(reader).expect("Could not parse the database file as a JSON data.");
     return store;
 }
 
 fn dump_store(store: &Store) {
     let path = get_path_to_store_file();
-    let store_json = serde_json::to_string(store).expect("Could not create a JSON string from the store.");
-    std::fs::write(&path, store_json).expect(&format!("Could not dump the JSON string into the database file \"{}\".", &path));
+    let store_json =
+        serde_json::to_string(store).expect("Could not create a JSON string from the store.");
+    std::fs::write(&path, store_json).expect(&format!(
+        "Could not dump the JSON string into the database file \"{}\".",
+        &path
+    ));
 }
 
 fn print_labels() {
@@ -81,7 +87,10 @@ fn add_label(name: String) {
     let mut store = load_store();
 
     if store.labels.contains(&name) {
-        panic!("A label with the name \"{}\" has been already created.", &name);
+        panic!(
+            "A label with the name \"{}\" has been already created.",
+            &name
+        );
     }
 
     store.labels.push(name.clone());
@@ -112,12 +121,10 @@ fn delete_label(name: String) {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        MainCommands::Label(label) => {
-            match label.command {
-                LabelCommands::List {} => print_labels(),
-                LabelCommands::Create { name } => add_label(name),
-                LabelCommands::Delete { name } => delete_label(name),
-            }
-        }
+        MainCommands::Label(label) => match label.command {
+            LabelCommands::List {} => print_labels(),
+            LabelCommands::Create { name } => add_label(name),
+            LabelCommands::Delete { name } => delete_label(name),
+        },
     }
 }

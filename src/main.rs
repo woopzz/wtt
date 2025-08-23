@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Local as ChronoLocal, NaiveDate, NaiveTime, Utc};
 use clap::{Args, Parser, Subcommand};
 use cli_table::{Cell, CellStruct, Style, Table};
+use uuid::Uuid;
 
 const DATE_FORMAT: &str = "%d.%m.%Y";
 const DATETIME_FORMAT: &str = "%d.%m.%Y %H:%M";
@@ -43,6 +44,12 @@ enum SessionCommands {
         #[arg(long, value_name = "dd.mm.yyyy")]
         to: Option<String>,
         /// Display the sessions which have at least one of these labels.
+        #[arg(short, long)]
+        labels: Vec<String>,
+    },
+    /// Create a new session.
+    Create {
+        /// A way to categorize sessions. You can provide several ones.
         #[arg(short, long)]
         labels: Vec<String>,
     },
@@ -107,6 +114,30 @@ impl Store {
                 return true;
             })
             .collect()
+    }
+
+    fn add_session(&mut self, labels: Vec<String>) -> Result<(), String> {
+        let unknown_labels: Vec<&str> = labels
+            .iter()
+            .filter_map(|x| (!self.labels.contains(x)).then_some(x.as_str()))
+            .collect();
+        if unknown_labels.len() > 0 {
+            return Err(format!(
+                "A label with the name '{}' has been already created.",
+                unknown_labels.join(", ")
+            ));
+        }
+        let id = Uuid::new_v4();
+        let now: DateTime<_> = ChronoLocal::now();
+        let session = Session {
+            id: id.to_string(),
+            start_at: now.timestamp(),
+            end_at: None,
+            note: None,
+            labels: labels,
+        };
+        self.sessions.push(session);
+        Ok(())
     }
 }
 
@@ -275,6 +306,12 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
     );
 }
 
+fn add_session(labels: Vec<String>) {
+    let mut store = load_store();
+    store.add_session(labels).unwrap();
+    dump_store(&store);
+}
+
 fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<Utc> {
     let date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y").expect(&format!(
         "The date '{date_str}' must be provided in the format '{DATE_FORMAT}'."
@@ -297,6 +334,7 @@ fn main() {
     match cli.command {
         MainCommands::Session(session) => match session.command {
             SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
+            SessionCommands::Create { labels } => add_session(labels),
         },
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => print_labels(),

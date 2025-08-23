@@ -91,7 +91,8 @@ impl Store {
         labels: &Vec<String>,
     ) -> Vec<&Session> {
         let labelset: HashSet<&str> = labels.iter().map(|x| x.as_str()).collect();
-        self.sessions
+        let mut sessions: Vec<&Session> = self
+            .sessions
             .iter()
             .filter(|session| {
                 if let Some(ft) = from_timestamp
@@ -107,13 +108,17 @@ impl Store {
                     return false;
                 }
 
-                if !session.labels.iter().any(|x| labelset.contains(x.as_str())) {
+                if labelset.len() > 0
+                    && !session.labels.iter().any(|x| labelset.contains(x.as_str()))
+                {
                     return false;
                 }
 
                 return true;
             })
-            .collect()
+            .collect();
+        sessions.sort_by_key(|x| x.start_at);
+        sessions
     }
 
     fn add_session(&mut self, labels: Vec<String>) -> Result<(), String> {

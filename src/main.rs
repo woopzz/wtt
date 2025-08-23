@@ -44,7 +44,7 @@ enum SessionCommands {
         to: Option<String>,
         /// Display the sessions which have at least one of these labels.
         #[arg(short, long)]
-        labels: Option<Vec<String>>,
+        labels: Vec<String>,
     },
 }
 
@@ -81,11 +81,9 @@ impl Store {
         &self,
         from_timestamp: Option<i64>,
         to_timestamp: Option<i64>,
-        labels: Option<Vec<String>>,
+        labels: &Vec<String>,
     ) -> Vec<&Session> {
-        let labelset: Option<HashSet<&str>> = labels
-            .as_ref()
-            .and_then(|x| Some(x.into_iter().map(|x| x.as_str()).collect()));
+        let labelset: HashSet<&str> = labels.iter().map(|x| x.as_str()).collect();
         self.sessions
             .iter()
             .filter(|session| {
@@ -102,9 +100,7 @@ impl Store {
                     return false;
                 }
 
-                if let Some(ref lblset) = labelset
-                    && !session.labels.iter().any(|x| lblset.contains(x.as_str()))
-                {
+                if !session.labels.iter().any(|x| labelset.contains(x.as_str())) {
                     return false;
                 }
 
@@ -196,6 +192,89 @@ fn delete_label(name: String) {
     println!("The label \"{}\" was successfully deleted.", &name);
 }
 
+fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>) {
+    let from_timestamp: Option<i64> = from.as_ref().and_then(|x| {
+        if x == "today" {
+            return Some(
+                // TODO UTC VS Local time
+                ChronoLocal::now()
+                    .with_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap())
+                    .unwrap()
+                    .timestamp(),
+            );
+        }
+        Some(get_datetime_from_date_str(x, NaiveTime::from_hms_opt(0, 0, 0).unwrap()).timestamp())
+    });
+    let to_timestamp: Option<i64> = to.as_ref().and_then(|x| {
+        Some(
+            get_datetime_from_date_str(x, NaiveTime::from_hms_opt(23, 59, 59).unwrap()).timestamp(),
+        )
+    });
+
+    let store = load_store();
+    let sessions = store.get_all_sessions(from_timestamp, to_timestamp, &labels);
+
+    let mut total_duration: u32 = 0;
+    let mut rows: Vec<Vec<CellStruct>> = vec![];
+    for session in sessions.into_iter() {
+        let start_dt = DateTime::from_timestamp(session.start_at, 0).expect(&format!(
+            "'{:?}' is not a valid timestamp.",
+            session.start_at
+        ));
+
+        let mut end_string: Option<String> = None;
+        let mut duration: u32 = 0;
+        if let Some(end_at) = session.end_at {
+            let end_dt = DateTime::from_timestamp(end_at, 0)
+                .expect(&format!("'{:?}' is not a valid timestamp.", session.end_at));
+            let duration_delta = end_dt - start_dt;
+            end_string = Some(end_dt.format(DATETIME_FORMAT).to_string());
+            duration = duration_delta.num_minutes() as u32;
+        }
+        total_duration += duration;
+
+        rows.push(vec![
+            session.id.as_str().cell(),
+            start_dt.format(DATETIME_FORMAT).cell(),
+            session.labels.join(", ").cell(),
+            match end_string {
+                Some(x) => x.cell(),
+                None => "".cell(),
+            },
+            format_duration(duration).cell(),
+            match session.note {
+                Some(ref x) => {
+                    let cell_length = get_pprint_note_cell_maxlength() as usize;
+                    let mut remainder: &str = x;
+                    let mut tmp: &str;
+                    let mut parts: Vec<&str> = vec![];
+                    while remainder.len() > cell_length {
+                        (tmp, remainder) = remainder.split_at(cell_length - 1);
+                        parts.push(tmp);
+                    }
+                    parts.join("\n").cell()
+                }
+                None => "".cell(),
+            },
+        ])
+    }
+    let table = rows.table().title(vec![
+        "ID".cell().bold(true),
+        "Start".cell().bold(true),
+        "Labels".cell().bold(true),
+        "End".cell().bold(true),
+        "Duration".cell().bold(true),
+        "Note".cell().bold(true),
+    ]);
+    println!(
+        "{}\nTotal duration of ended sessions: {}.",
+        table
+            .display()
+            .expect("Could not build a table with sessions."),
+        format_duration(total_duration),
+    );
+}
+
 fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<Utc> {
     let date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y").expect(&format!(
         "The date '{date_str}' must be provided in the format '{DATE_FORMAT}'."
@@ -217,92 +296,7 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         MainCommands::Session(session) => match session.command {
-            SessionCommands::Pprint { from, to, labels } => {
-                let from_timestamp: Option<i64> = from.as_ref().and_then(|x| {
-                    if x == "today" {
-                        return Some(
-                            // TODO UTC VS Local time
-                            ChronoLocal::now()
-                                .with_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap())
-                                .unwrap()
-                                .timestamp(),
-                        );
-                    }
-                    Some(
-                        get_datetime_from_date_str(x, NaiveTime::from_hms_opt(0, 0, 0).unwrap())
-                            .timestamp(),
-                    )
-                });
-                let to_timestamp: Option<i64> = to.as_ref().and_then(|x| {
-                    Some(
-                        get_datetime_from_date_str(x, NaiveTime::from_hms_opt(23, 59, 59).unwrap())
-                            .timestamp(),
-                    )
-                });
-
-                let store = load_store();
-                let sessions = store.get_all_sessions(from_timestamp, to_timestamp, labels);
-
-                let mut total_duration: u32 = 0;
-                let mut rows: Vec<Vec<CellStruct>> = vec![];
-                for session in sessions.into_iter() {
-                    let start_dt = DateTime::from_timestamp(session.start_at, 0).expect(&format!(
-                        "'{:?}' is not a valid timestamp.",
-                        session.start_at
-                    ));
-
-                    let mut end_string: Option<String> = None;
-                    let mut duration: u32 = 0;
-                    if let Some(end_at) = session.end_at {
-                        let end_dt = DateTime::from_timestamp(end_at, 0)
-                            .expect(&format!("'{:?}' is not a valid timestamp.", session.end_at));
-                        let duration_delta = end_dt - start_dt;
-                        end_string = Some(end_dt.format(DATETIME_FORMAT).to_string());
-                        duration = duration_delta.num_minutes() as u32;
-                    }
-                    total_duration += duration;
-
-                    rows.push(vec![
-                        session.id.as_str().cell(),
-                        start_dt.format(DATETIME_FORMAT).cell(),
-                        session.labels.join(", ").cell(),
-                        match end_string {
-                            Some(x) => x.cell(),
-                            None => "".cell(),
-                        },
-                        format_duration(duration).cell(),
-                        match session.note {
-                            Some(ref x) => {
-                                let cell_length = get_pprint_note_cell_maxlength() as usize;
-                                let mut remainder: &str = x;
-                                let mut tmp: &str;
-                                let mut parts: Vec<&str> = vec![];
-                                while remainder.len() > cell_length {
-                                    (tmp, remainder) = remainder.split_at(cell_length - 1);
-                                    parts.push(tmp);
-                                }
-                                parts.join("\n").cell()
-                            }
-                            None => "".cell(),
-                        },
-                    ])
-                }
-                let table = rows.table().title(vec![
-                    "ID".cell().bold(true),
-                    "Start".cell().bold(true),
-                    "Labels".cell().bold(true),
-                    "End".cell().bold(true),
-                    "Duration".cell().bold(true),
-                    "Note".cell().bold(true),
-                ]);
-                println!(
-                    "{}\nTotal duration of ended sessions: {}.",
-                    table
-                        .display()
-                        .expect("Could not build a table with sessions."),
-                    format_duration(total_duration),
-                );
-            }
+            SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
         },
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => print_labels(),

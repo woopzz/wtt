@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use chrono::{DateTime, Local as ChronoLocal, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Local as LocalTZ, NaiveDate, NaiveTime, TimeZone};
 use clap::{Args, Parser, Subcommand};
 use cli_table::{Cell, CellStruct, Style, Table};
 use uuid::Uuid;
@@ -133,7 +133,7 @@ impl Store {
             ));
         }
         let id = Uuid::new_v4();
-        let now: DateTime<_> = ChronoLocal::now();
+        let now: DateTime<_> = LocalTZ::now();
         let session = Session {
             id: id.to_string(),
             start_at: now.timestamp(),
@@ -232,8 +232,7 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
     let from_timestamp: Option<i64> = from.as_ref().and_then(|x| {
         if x == "today" {
             return Some(
-                // TODO UTC VS Local time
-                ChronoLocal::now()
+                LocalTZ::now()
                     .with_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap())
                     .unwrap()
                     .timestamp(),
@@ -253,16 +252,12 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
     let mut total_duration: u32 = 0;
     let mut rows: Vec<Vec<CellStruct>> = vec![];
     for session in sessions.into_iter() {
-        let start_dt = DateTime::from_timestamp(session.start_at, 0).expect(&format!(
-            "'{:?}' is not a valid timestamp.",
-            session.start_at
-        ));
+        let start_dt = LocalTZ.timestamp_opt(session.start_at, 0).unwrap();
 
         let mut end_string: Option<String> = None;
         let mut duration: u32 = 0;
         if let Some(end_at) = session.end_at {
-            let end_dt = DateTime::from_timestamp(end_at, 0)
-                .expect(&format!("'{:?}' is not a valid timestamp.", session.end_at));
+            let end_dt = LocalTZ.timestamp_opt(end_at, 0).unwrap();
             let duration_delta = end_dt - start_dt;
             end_string = Some(end_dt.format(DATETIME_FORMAT).to_string());
             duration = duration_delta.num_minutes() as u32;
@@ -317,11 +312,11 @@ fn add_session(labels: Vec<String>) {
     dump_store(&store);
 }
 
-fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<Utc> {
+fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<LocalTZ> {
     let date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y").expect(&format!(
         "The date '{date_str}' must be provided in the format '{DATE_FORMAT}'."
     ));
-    date.and_time(time).and_utc()
+    date.and_time(time).and_local_timezone(LocalTZ).unwrap()
 }
 
 fn format_duration(value: u32) -> String {

@@ -110,7 +110,7 @@ impl Store {
             .map_err(|x| format!("Could not open the database file {}. {}", &path, x))?;
         let reader = std::io::BufReader::new(file);
         let store: Store = serde_json::from_reader(reader)
-            .map_err(|x| format!("Could not parse the database file as a JSON data. {x}"))?;
+            .map_err(|x| format!("Could not parse the database file as JSON data. {x}"))?;
         Ok(store)
     }
 
@@ -164,7 +164,7 @@ impl Store {
         sessions
     }
 
-    fn add_session(&mut self, labels: Vec<String>) -> Result<()> {
+    fn add_session(&mut self, labels: Vec<String>) -> Result<&Session> {
         let unknown_labels: Vec<&str> = labels
             .iter()
             .filter_map(|x| (!self.labels.contains(x)).then_some(x.as_str()))
@@ -186,10 +186,10 @@ impl Store {
             labels: labels,
         };
         self.sessions.push(session);
-        Ok(())
+        Ok(self.sessions.last().unwrap())
     }
 
-    fn end_session(&mut self, id: Option<String>, note: Option<String>) -> Result<()> {
+    fn end_session(&mut self, id: Option<String>, note: Option<String>) -> Result<&Session> {
         let session: &mut Session = match id {
             Some(session_id) => {
                 let session = self.get_session_by_id(&session_id)?;
@@ -205,7 +205,7 @@ impl Store {
         session.end_at = Some(now.timestamp());
         session.note = note;
 
-        Ok(())
+        Ok(session)
     }
 
     fn add_note(&mut self, id: String, note: String) -> Result<()> {
@@ -252,7 +252,7 @@ fn get_pprint_note_cell_maxlength() -> u16 {
     if let Ok(value_string) = std::env::var("WTT_PPRINT_NOTE_CELL_MAXLENGTH") {
         return value_string
             .parse()
-            .expect("The value for WTT_PPRINT_NOTE_CELL_MAXLENGTH is not a valid number.");
+            .expect("The value for WTT_PPRINT_NOTE_CELL_MAXLENGTH is not a valid u16 number.");
     }
     40
 }
@@ -364,17 +364,20 @@ fn main() {
             SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
             SessionCommands::Create { labels } => {
                 let mut store = Store::from_store_file().unwrap();
-                store.add_session(labels).unwrap();
+                let session = store.add_session(labels).unwrap();
+                println!("New session was successfully created: {}", &session.id);
                 store.save().unwrap();
             }
             SessionCommands::End { id, note } => {
                 let mut store = Store::from_store_file().unwrap();
-                store.end_session(id, note).unwrap();
+                let session = store.end_session(id, note).unwrap();
+                println!("The session {} was successfully ended.", &session.id);
                 store.save().unwrap();
             }
             SessionCommands::Note { id, text } => {
                 let mut store = Store::from_store_file().unwrap();
                 store.add_note(id, text).unwrap();
+                println!("Updated.");
                 store.save().unwrap();
             }
         },
@@ -388,23 +391,20 @@ fn main() {
                 let mut store = Store::from_store_file().unwrap();
 
                 if store.labels.contains(&name) {
-                    panic!(
-                        "A label with the name \"{}\" has been already created.",
-                        &name
-                    );
+                    panic!("The label '{}' has been already created.", &name);
                 }
 
                 store.labels.push(name.clone());
                 store.save().unwrap();
 
-                println!("A new label \"{}\" is created.", &name);
+                println!("The label '{}' is created.", &name);
             }
             LabelCommands::Delete { name } => {
                 let name = name;
                 let mut store = Store::from_store_file().unwrap();
 
                 if !store.labels.contains(&name) {
-                    panic!("The label \"{}\" was not found.", &name);
+                    panic!("The label '{}' was not found.", &name);
                 }
 
                 store.labels.retain(|x| *x != name);
@@ -416,7 +416,7 @@ fn main() {
                 }
 
                 store.save().unwrap();
-                println!("The label \"{}\" was successfully deleted.", &name);
+                println!("The label '{}' was successfully deleted.", &name);
             }
         },
     }

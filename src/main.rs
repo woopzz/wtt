@@ -53,6 +53,15 @@ enum SessionCommands {
         #[arg(short, long)]
         labels: Vec<String>,
     },
+    /// End a running session.
+    End {
+        /// A running session identifier. If not provided, the running session that was created last will be ended.
+        #[arg(long)]
+        id: Option<String>,
+        /// Leave a message describing what you've done.
+        #[arg(long)]
+        note: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -143,6 +152,45 @@ impl Store {
         };
         self.sessions.push(session);
         Ok(())
+    }
+
+    fn end_session(&mut self, id: Option<String>, note: Option<String>) -> Result<(), String> {
+        let session: &mut Session = match id {
+            Some(session_id) => {
+                let session = self.get_session_by_id(&session_id)?;
+                if session.end_at.is_some() {
+                    return Err(format!("The session {session_id} has already ended."));
+                }
+                session
+            }
+            None => self.get_newest_running_session()?,
+        };
+
+        let now: DateTime<_> = LocalTZ::now();
+        session.end_at = Some(now.timestamp());
+        session.note = note;
+
+        Ok(())
+    }
+
+    fn get_session_by_id(&mut self, id: &str) -> Result<&mut Session, String> {
+        match self.sessions.iter_mut().find(|x| x.id == id) {
+            Some(x) => Ok(x),
+            None => Err(format!("The session {id} was not found.")),
+        }
+    }
+
+    fn get_newest_running_session(&mut self) -> Result<&mut Session, String> {
+        let mut running_session_info: Vec<&mut Session> = self
+            .sessions
+            .iter_mut()
+            .filter_map(|x| x.end_at.is_none().then_some(x))
+            .collect();
+        running_session_info.sort_by_key(|x| x.start_at);
+        match running_session_info.pop() {
+            Some(x) => Ok(x),
+            None => Err("There is no running session.".to_string()),
+        }
     }
 }
 
@@ -312,6 +360,12 @@ fn add_session(labels: Vec<String>) {
     dump_store(&store);
 }
 
+fn end_session(id: Option<String>, note: Option<String>) {
+    let mut store = load_store();
+    store.end_session(id, note).unwrap();
+    dump_store(&store);
+}
+
 fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<LocalTZ> {
     let date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y").expect(&format!(
         "The date '{date_str}' must be provided in the format '{DATE_FORMAT}'."
@@ -335,6 +389,7 @@ fn main() {
         MainCommands::Session(session) => match session.command {
             SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
             SessionCommands::Create { labels } => add_session(labels),
+            SessionCommands::End { id, note } => end_session(id, note),
         },
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => print_labels(),

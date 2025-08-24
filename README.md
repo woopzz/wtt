@@ -1,18 +1,22 @@
 # Woopzzz's Time Tracker (WTT)
 
 ```bash
-$ pip install -r requirements.txt
-$ ./wtt
+$ cargo build --release
+$ WTT_PATH_DATABASE=~/.local/share/wtt.json ./target/release/wtt --help
 ```
 
 ### How I use the app
 
-I use virtualenv so it needs to be activated before running the app. For this purpose (for the most part) I have the following bash script.
+I have the following script to avoid specifying the path to the store file every time.
 
 ```bash
-#!/bin/sh
-WTT_HOME=$HOME/wtt
-. $WTT_HOME/.env/bin/activate
+#!/bin/bash
 export WTT_PATH_DATABASE="$HOME/.local/share/wtt.json"
-$WTT_HOME/wtt $@
+$HOME/repos/wtt/target/release/wtt "$@"
+```
+
+Also I have an alias to the most used command in my Bash config.
+
+```bash
+alias wttt="wtt session pprint --from today"
 ```

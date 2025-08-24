@@ -40,25 +40,25 @@ struct SessionArgs {
 enum SessionCommands {
     /// Print a pretty representation of all sessions info.
     Pprint {
-        /// Display the sessions which were created this day or later. The range is inclusive.
+        /// Display the sessions which were started this day or later. The range is inclusive.
         #[arg(long, value_name = "dd.mm.yyyy or today")]
         from: Option<String>,
-        /// Display the sessions which were created this day or earlier. The range is inclusive.
+        /// Display the sessions which were started this day or earlier. The range is inclusive.
         #[arg(long, value_name = "dd.mm.yyyy")]
         to: Option<String>,
         /// Display the sessions which have at least one of these labels.
         #[arg(short, long)]
         labels: Vec<String>,
     },
-    /// Create a new session.
-    Create {
+    /// Start a new session.
+    Start {
         /// A way to categorize sessions. You can provide several ones.
         #[arg(short, long)]
         labels: Vec<String>,
     },
     /// End a running session.
     End {
-        /// A running session identifier. If not provided, the running session that was created last will be ended.
+        /// A running session identifier. If not provided, the running session that was started last will be ended.
         #[arg(long)]
         id: Option<String>,
         /// Leave a message describing what you've done.
@@ -164,7 +164,7 @@ impl Store {
         sessions
     }
 
-    fn add_session(&mut self, labels: Vec<String>) -> Result<&Session> {
+    fn start_session(&mut self, labels: Vec<String>) -> Result<&Session> {
         let unknown_labels: Vec<&str> = labels
             .iter()
             .filter_map(|x| (!self.labels.contains(x)).then_some(x.as_str()))
@@ -362,10 +362,10 @@ fn main() {
     match cli.command {
         MainCommands::Session(session) => match session.command {
             SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
-            SessionCommands::Create { labels } => {
+            SessionCommands::Start { labels } => {
                 let mut store = Store::from_store_file().unwrap();
-                let session = store.add_session(labels).unwrap();
-                println!("New session was successfully created: {}", &session.id);
+                let session = store.start_session(labels).unwrap();
+                println!("New session was successfully started: {}", &session.id);
                 store.save().unwrap();
             }
             SessionCommands::End { id, note } => {

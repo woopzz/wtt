@@ -5,6 +5,9 @@ use clap::{Args, Parser, Subcommand};
 use cli_table::{Cell, CellStruct, Style, Table};
 use uuid::Uuid;
 
+type Error = Box<dyn std::error::Error>;
+type Result<T> = std::result::Result<T, Error>;
+
 const DATE_FORMAT: &str = "%d.%m.%Y";
 const DATETIME_FORMAT: &str = "%d.%m.%Y %H:%M";
 
@@ -138,7 +141,7 @@ impl Store {
         sessions
     }
 
-    fn add_session(&mut self, labels: Vec<String>) -> Result<(), String> {
+    fn add_session(&mut self, labels: Vec<String>) -> Result<()> {
         let unknown_labels: Vec<&str> = labels
             .iter()
             .filter_map(|x| (!self.labels.contains(x)).then_some(x.as_str()))
@@ -147,7 +150,8 @@ impl Store {
             return Err(format!(
                 "A label with the name '{}' has been already created.",
                 unknown_labels.join(", ")
-            ));
+            )
+            .into());
         }
         let id = Uuid::new_v4();
         let now: DateTime<_> = LocalTZ::now();
@@ -162,12 +166,12 @@ impl Store {
         Ok(())
     }
 
-    fn end_session(&mut self, id: Option<String>, note: Option<String>) -> Result<(), String> {
+    fn end_session(&mut self, id: Option<String>, note: Option<String>) -> Result<()> {
         let session: &mut Session = match id {
             Some(session_id) => {
                 let session = self.get_session_by_id(&session_id)?;
                 if session.end_at.is_some() {
-                    return Err(format!("The session {session_id} has already ended."));
+                    return Err(format!("The session {session_id} has already ended.").into());
                 }
                 session
             }
@@ -181,20 +185,20 @@ impl Store {
         Ok(())
     }
 
-    fn add_note(&mut self, id: String, note: String) -> Result<(), String> {
+    fn add_note(&mut self, id: String, note: String) -> Result<()> {
         let session = self.get_session_by_id(&id)?;
         session.note = Some(note);
         Ok(())
     }
 
-    fn get_session_by_id(&mut self, id: &str) -> Result<&mut Session, String> {
+    fn get_session_by_id(&mut self, id: &str) -> Result<&mut Session> {
         match self.sessions.iter_mut().find(|x| x.id == id) {
             Some(x) => Ok(x),
-            None => Err(format!("The session {id} was not found.")),
+            None => Err(format!("The session {id} was not found.").into()),
         }
     }
 
-    fn get_newest_running_session(&mut self) -> Result<&mut Session, String> {
+    fn get_newest_running_session(&mut self) -> Result<&mut Session> {
         let mut running_session_info: Vec<&mut Session> = self
             .sessions
             .iter_mut()
@@ -203,7 +207,7 @@ impl Store {
         running_session_info.sort_by_key(|x| x.start_at);
         match running_session_info.pop() {
             Some(x) => Ok(x),
-            None => Err("There is no running session.".to_string()),
+            None => Err("There is no running session.".into()),
         }
     }
 }
@@ -230,33 +234,36 @@ fn get_pprint_note_cell_maxlength() -> u16 {
     40
 }
 
-fn load_store() -> Store {
+fn load_store() -> Result<Store> {
     let path = get_path_to_store_file();
     let file = std::fs::File::open(&path)
-        .expect(&format!("Could not open the database file \"{}\".", &path));
+        .map_err(|x| format!("Could not open the database file {}. {}", &path, x))?;
     let reader = std::io::BufReader::new(file);
-    let store: Store =
-        serde_json::from_reader(reader).expect("Could not parse the database file as a JSON data.");
-    return store;
+    let store: Store = serde_json::from_reader(reader)
+        .map_err(|x| format!("Could not parse the database file as a JSON data. {x}"))?;
+    Ok(store)
 }
 
-fn dump_store(store: &Store) {
+fn dump_store(store: &Store) -> Result<()> {
     let path = get_path_to_store_file();
-    let store_json =
-        serde_json::to_string(store).expect("Could not create a JSON string from the store.");
-    std::fs::write(&path, store_json).expect(&format!(
-        "Could not dump the JSON string into the database file \"{}\".",
-        &path
-    ));
+    let store_json = serde_json::to_string(store)
+        .map_err(|x| format!("Could not create a JSON string from the store. {x}"))?;
+    std::fs::write(&path, store_json).map_err(|x| {
+        format!(
+            "Could not dump the JSON string into the database file {}. {}",
+            &path, x
+        )
+    })?;
+    Ok(())
 }
 
 fn print_labels() {
-    let store = load_store();
+    let store = load_store().unwrap();
     println!("{}", store.labels.join("\t"));
 }
 
 fn add_label(name: String) {
-    let mut store = load_store();
+    let mut store = load_store().unwrap();
 
     if store.labels.contains(&name) {
         panic!(
@@ -266,13 +273,13 @@ fn add_label(name: String) {
     }
 
     store.labels.push(name.clone());
-    dump_store(&store);
+    dump_store(&store).unwrap();
 
     println!("A new label \"{}\" is created.", &name);
 }
 
 fn delete_label(name: String) {
-    let mut store = load_store();
+    let mut store = load_store().unwrap();
 
     if !store.labels.contains(&name) {
         panic!("The label \"{}\" was not found.", &name);
@@ -286,7 +293,7 @@ fn delete_label(name: String) {
         }
     }
 
-    dump_store(&store);
+    dump_store(&store).unwrap();
     println!("The label \"{}\" was successfully deleted.", &name);
 }
 
@@ -308,7 +315,7 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
         )
     });
 
-    let store = load_store();
+    let store = load_store().unwrap();
     let sessions = store.get_all_sessions(from_timestamp, to_timestamp, &labels);
 
     let mut total_duration: u32 = 0;
@@ -374,21 +381,21 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
 }
 
 fn add_session(labels: Vec<String>) {
-    let mut store = load_store();
+    let mut store = load_store().unwrap();
     store.add_session(labels).unwrap();
-    dump_store(&store);
+    dump_store(&store).unwrap();
 }
 
 fn end_session(id: Option<String>, note: Option<String>) {
-    let mut store = load_store();
+    let mut store = load_store().unwrap();
     store.end_session(id, note).unwrap();
-    dump_store(&store);
+    dump_store(&store).unwrap();
 }
 
 fn add_note(id: String, text: String) {
-    let mut store = load_store();
+    let mut store = load_store().unwrap();
     store.add_note(id, text).unwrap();
-    dump_store(&store);
+    dump_store(&store).unwrap();
 }
 
 fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<LocalTZ> {

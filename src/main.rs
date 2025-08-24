@@ -62,6 +62,14 @@ enum SessionCommands {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Add a note to a session.
+    Note {
+        /// A running session identifier.
+        #[arg(long)]
+        id: String,
+
+        text: String,
+    },
 }
 
 #[derive(Args)]
@@ -170,6 +178,12 @@ impl Store {
         session.end_at = Some(now.timestamp());
         session.note = note;
 
+        Ok(())
+    }
+
+    fn add_note(&mut self, id: String, note: String) -> Result<(), String> {
+        let session = self.get_session_by_id(&id)?;
+        session.note = Some(note);
         Ok(())
     }
 
@@ -371,6 +385,12 @@ fn end_session(id: Option<String>, note: Option<String>) {
     dump_store(&store);
 }
 
+fn add_note(id: String, text: String) {
+    let mut store = load_store();
+    store.add_note(id, text).unwrap();
+    dump_store(&store);
+}
+
 fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<LocalTZ> {
     let date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y").expect(&format!(
         "The date '{date_str}' must be provided in the format '{DATE_FORMAT}'."
@@ -395,6 +415,7 @@ fn main() {
             SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
             SessionCommands::Create { labels } => add_session(labels),
             SessionCommands::End { id, note } => end_session(id, note),
+            SessionCommands::Note { id, text } => add_note(id, text),
         },
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => print_labels(),

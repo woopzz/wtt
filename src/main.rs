@@ -327,9 +327,14 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
                     let mut remainder: &str = x;
                     let mut tmp: &str;
                     let mut parts: Vec<&str> = vec![];
-                    while remainder.len() > cell_length {
-                        (tmp, remainder) = remainder.split_at(cell_length - 1);
-                        parts.push(tmp);
+                    while remainder.len() > 0 {
+                        if remainder.len() > cell_length {
+                            (tmp, remainder) = remainder.split_at(cell_length - 1);
+                            parts.push(tmp);
+                        } else {
+                            parts.push(remainder);
+                            break;
+                        }
                     }
                     parts.join("\n").cell()
                 }

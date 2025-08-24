@@ -104,6 +104,29 @@ struct Store {
 }
 
 impl Store {
+    fn from_store_file() -> Result<Self> {
+        let path = get_path_to_store_file();
+        let file = std::fs::File::open(&path)
+            .map_err(|x| format!("Could not open the database file {}. {}", &path, x))?;
+        let reader = std::io::BufReader::new(file);
+        let store: Store = serde_json::from_reader(reader)
+            .map_err(|x| format!("Could not parse the database file as a JSON data. {x}"))?;
+        Ok(store)
+    }
+
+    fn save(&self) -> Result<()> {
+        let path = get_path_to_store_file();
+        let store_json = serde_json::to_string(self)
+            .map_err(|x| format!("Could not create a JSON string from the store. {x}"))?;
+        std::fs::write(&path, store_json).map_err(|x| {
+            format!(
+                "Could not dump the JSON string into the database file {}. {}",
+                &path, x
+            )
+        })?;
+        Ok(())
+    }
+
     fn get_all_sessions(
         &self,
         from_timestamp: Option<i64>,
@@ -234,69 +257,6 @@ fn get_pprint_note_cell_maxlength() -> u16 {
     40
 }
 
-fn load_store() -> Result<Store> {
-    let path = get_path_to_store_file();
-    let file = std::fs::File::open(&path)
-        .map_err(|x| format!("Could not open the database file {}. {}", &path, x))?;
-    let reader = std::io::BufReader::new(file);
-    let store: Store = serde_json::from_reader(reader)
-        .map_err(|x| format!("Could not parse the database file as a JSON data. {x}"))?;
-    Ok(store)
-}
-
-fn dump_store(store: &Store) -> Result<()> {
-    let path = get_path_to_store_file();
-    let store_json = serde_json::to_string(store)
-        .map_err(|x| format!("Could not create a JSON string from the store. {x}"))?;
-    std::fs::write(&path, store_json).map_err(|x| {
-        format!(
-            "Could not dump the JSON string into the database file {}. {}",
-            &path, x
-        )
-    })?;
-    Ok(())
-}
-
-fn print_labels() {
-    let store = load_store().unwrap();
-    println!("{}", store.labels.join("\t"));
-}
-
-fn add_label(name: String) {
-    let mut store = load_store().unwrap();
-
-    if store.labels.contains(&name) {
-        panic!(
-            "A label with the name \"{}\" has been already created.",
-            &name
-        );
-    }
-
-    store.labels.push(name.clone());
-    dump_store(&store).unwrap();
-
-    println!("A new label \"{}\" is created.", &name);
-}
-
-fn delete_label(name: String) {
-    let mut store = load_store().unwrap();
-
-    if !store.labels.contains(&name) {
-        panic!("The label \"{}\" was not found.", &name);
-    }
-
-    store.labels.retain(|x| *x != name);
-
-    for session in &mut store.sessions {
-        if session.labels.contains(&name) {
-            session.labels.retain(|x| *x != name);
-        }
-    }
-
-    dump_store(&store).unwrap();
-    println!("The label \"{}\" was successfully deleted.", &name);
-}
-
 fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>) {
     let from_timestamp: Option<i64> = from.as_ref().and_then(|x| {
         if x == "today" {
@@ -315,7 +275,7 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
         )
     });
 
-    let store = load_store().unwrap();
+    let store = Store::from_store_file().unwrap();
     let sessions = store.get_all_sessions(from_timestamp, to_timestamp, &labels);
 
     let mut total_duration: u32 = 0;
@@ -380,24 +340,6 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
     );
 }
 
-fn add_session(labels: Vec<String>) {
-    let mut store = load_store().unwrap();
-    store.add_session(labels).unwrap();
-    dump_store(&store).unwrap();
-}
-
-fn end_session(id: Option<String>, note: Option<String>) {
-    let mut store = load_store().unwrap();
-    store.end_session(id, note).unwrap();
-    dump_store(&store).unwrap();
-}
-
-fn add_note(id: String, text: String) {
-    let mut store = load_store().unwrap();
-    store.add_note(id, text).unwrap();
-    dump_store(&store).unwrap();
-}
-
 fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<LocalTZ> {
     let date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y").expect(&format!(
         "The date '{date_str}' must be provided in the format '{DATE_FORMAT}'."
@@ -420,14 +362,62 @@ fn main() {
     match cli.command {
         MainCommands::Session(session) => match session.command {
             SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
-            SessionCommands::Create { labels } => add_session(labels),
-            SessionCommands::End { id, note } => end_session(id, note),
-            SessionCommands::Note { id, text } => add_note(id, text),
+            SessionCommands::Create { labels } => {
+                let mut store = Store::from_store_file().unwrap();
+                store.add_session(labels).unwrap();
+                store.save().unwrap();
+            }
+            SessionCommands::End { id, note } => {
+                let mut store = Store::from_store_file().unwrap();
+                store.end_session(id, note).unwrap();
+                store.save().unwrap();
+            }
+            SessionCommands::Note { id, text } => {
+                let mut store = Store::from_store_file().unwrap();
+                store.add_note(id, text).unwrap();
+                store.save().unwrap();
+            }
         },
         MainCommands::Label(label) => match label.command {
-            LabelCommands::List {} => print_labels(),
-            LabelCommands::Create { name } => add_label(name),
-            LabelCommands::Delete { name } => delete_label(name),
+            LabelCommands::List {} => {
+                let store = Store::from_store_file().unwrap();
+                println!("{}", store.labels.join("\t"));
+            }
+            LabelCommands::Create { name } => {
+                let name = name;
+                let mut store = Store::from_store_file().unwrap();
+
+                if store.labels.contains(&name) {
+                    panic!(
+                        "A label with the name \"{}\" has been already created.",
+                        &name
+                    );
+                }
+
+                store.labels.push(name.clone());
+                store.save().unwrap();
+
+                println!("A new label \"{}\" is created.", &name);
+            }
+            LabelCommands::Delete { name } => {
+                let name = name;
+                let mut store = Store::from_store_file().unwrap();
+
+                if !store.labels.contains(&name) {
+                    panic!("The label \"{}\" was not found.", &name);
+                }
+
+                store.labels.retain(|x| *x != name);
+
+                for session in &mut store.sessions {
+                    if session.labels.contains(&name) {
+                        session.labels.retain(|x| *x != name);
+                    }
+                }
+
+                store.save().unwrap();
+                println!("The label \"{}\" was successfully deleted.", &name);
+            }
         },
     }
 }

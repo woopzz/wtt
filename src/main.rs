@@ -141,7 +141,7 @@ impl Store {
         &self,
         from_timestamp: Option<i64>,
         to_timestamp: Option<i64>,
-        labels: &Vec<String>,
+        labels: &[String],
     ) -> Vec<&Session> {
         let labelset: HashSet<&str> = labels.iter().map(|x| x.as_str()).collect();
         let mut sessions: Vec<&Session> = self
@@ -199,10 +199,10 @@ impl Store {
         Ok(self.sessions.last().unwrap())
     }
 
-    fn end_session(&mut self, id: Option<String>, note: Option<String>) -> Result<&Session> {
+    fn end_session(&mut self, id: Option<&str>, note: Option<String>) -> Result<&Session> {
         let session: &mut Session = match id {
             Some(session_id) => {
-                let session = self.get_session_by_id(&session_id)?;
+                let session = self.get_session_by_id(session_id)?;
                 if session.end_at.is_some() {
                     return Err(format!("The session {session_id} has already ended.").into());
                 }
@@ -218,8 +218,8 @@ impl Store {
         Ok(session)
     }
 
-    fn add_note(&mut self, id: String, note: String) -> Result<()> {
-        let session = self.get_session_by_id(&id)?;
+    fn add_note(&mut self, id: &str, note: String) -> Result<()> {
+        let session = self.get_session_by_id(id)?;
         session.note = Some(note);
         Ok(())
     }
@@ -242,6 +242,29 @@ impl Store {
             Some(x) => Ok(x),
             None => Err("There is no running session.".into()),
         }
+    }
+
+    fn add_label(&mut self, name: String) -> Result<()> {
+        if self.labels.contains(&name) {
+            return Err(format!("The label '{}' has been already created.", &name).into());
+        }
+        self.labels.push(name);
+        Ok(())
+    }
+
+    fn delete_label(&mut self, name: &str) -> Result<()> {
+        let count_before = self.labels.len();
+        self.labels.retain(|x| x != name);
+
+        if self.labels.len() == count_before {
+            return Err(format!("The label '{}' was not found.", name).into());
+        }
+
+        for session in &mut self.sessions {
+            session.labels.retain(|x| *x != name);
+        }
+
+        Ok(())
     }
 }
 
@@ -380,13 +403,13 @@ fn main() {
             }
             SessionCommands::End { id, note } => {
                 let mut store = Store::from_store_file().unwrap();
-                let session = store.end_session(id, note).unwrap();
+                let session = store.end_session(id.as_deref(), note).unwrap();
                 println!("The session {} was successfully ended.", &session.id);
                 store.save().unwrap();
             }
             SessionCommands::Note { id, text } => {
                 let mut store = Store::from_store_file().unwrap();
-                store.add_note(id, text).unwrap();
+                store.add_note(&id, text).unwrap();
                 println!("Updated.");
                 store.save().unwrap();
             }
@@ -397,34 +420,14 @@ fn main() {
                 println!("{}", store.labels.join("\t"));
             }
             LabelCommands::Create { name } => {
-                let name = name;
                 let mut store = Store::from_store_file().unwrap();
-
-                if store.labels.contains(&name) {
-                    panic!("The label '{}' has been already created.", &name);
-                }
-
-                store.labels.push(name.clone());
+                store.add_label(name.clone()).unwrap();
                 store.save().unwrap();
-
                 println!("The label '{}' is created.", &name);
             }
             LabelCommands::Delete { name } => {
-                let name = name;
                 let mut store = Store::from_store_file().unwrap();
-
-                if !store.labels.contains(&name) {
-                    panic!("The label '{}' was not found.", &name);
-                }
-
-                store.labels.retain(|x| *x != name);
-
-                for session in &mut store.sessions {
-                    if session.labels.contains(&name) {
-                        session.labels.retain(|x| *x != name);
-                    }
-                }
-
+                store.delete_label(&name).unwrap();
                 store.save().unwrap();
                 println!("The label '{}' was successfully deleted.", &name);
             }

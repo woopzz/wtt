@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fs};
 
 use chrono::{DateTime, Local as LocalTZ, NaiveDate, NaiveTime, TimeZone};
 use clap::{Args, Parser, Subcommand};
@@ -106,6 +106,16 @@ struct Store {
 impl Store {
     fn from_store_file() -> Result<Self> {
         let path = get_path_to_store_file();
+
+        let file_exists = fs::exists(&path)
+            .map_err(|x| format!("Could not check the database file {}. {}", &path, x))?;
+        if !file_exists {
+            return Ok(Self {
+                sessions: vec![],
+                labels: vec![],
+            });
+        }
+
         let file = std::fs::File::open(&path)
             .map_err(|x| format!("Could not open the database file {}. {}", &path, x))?;
         let reader = std::io::BufReader::new(file);

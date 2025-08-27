@@ -86,10 +86,7 @@ enum LabelCommands {
     /// Display all available labels.
     List {},
     /// Create a new label.
-    Create {
-        #[arg(long)]
-        name: String,
-    },
+    Create { name: String },
     /// Delete an existing label.
     Delete {
         #[arg(long)]

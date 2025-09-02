@@ -178,7 +178,7 @@ impl Store {
             .collect();
         if unknown_labels.len() > 0 {
             return Err(format!(
-                "A label with the name '{}' has been already created.",
+                "Unknown labels: {}. You must create labels before using them.",
                 unknown_labels.join(", ")
             )
             .into());

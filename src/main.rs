@@ -334,20 +334,8 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
             format_duration(duration).cell(),
             match session.note {
                 Some(ref x) => {
-                    let cell_length = get_pprint_note_cell_maxlength() as usize;
-                    let mut remainder: &str = x;
-                    let mut tmp: &str;
-                    let mut parts: Vec<&str> = vec![];
-                    while remainder.len() > 0 {
-                        if remainder.len() > cell_length {
-                            (tmp, remainder) = remainder.split_at(cell_length - 1);
-                            parts.push(tmp);
-                        } else {
-                            parts.push(remainder);
-                            break;
-                        }
-                    }
-                    parts.join("\n").cell()
+                    let max_width = get_pprint_note_cell_maxlength();
+                    built_multilined_note(x, usize::from(max_width)).cell()
                 }
                 None => "".cell(),
             },
@@ -385,6 +373,38 @@ fn format_duration(value: u32) -> String {
     } else {
         format!("{minutes} minutes")
     }
+}
+
+fn built_multilined_note(text: &str, max_width: usize) -> String {
+    let mut text: &str = text;
+    let mut tmp: &str;
+    let mut parts: Vec<&str> = vec![];
+    while text.len() > 0 {
+        if text.len() <= max_width {
+            parts.push(text);
+            break;
+        }
+
+        let mut last_whitespace_index: Option<usize> = None;
+        for (index, char) in text.char_indices() {
+            if index >= max_width {
+                break;
+            }
+            if char == ' ' {
+                last_whitespace_index = Some(index);
+            }
+        }
+
+        if let Some(ws_index) = last_whitespace_index {
+            (tmp, text) = text.split_at(ws_index);
+            text = text.trim_start();
+            parts.push(tmp);
+        } else {
+            (tmp, text) = text.split_at(max_width - 1);
+            parts.push(tmp);
+        }
+    }
+    parts.join("\n")
 }
 
 fn main() {

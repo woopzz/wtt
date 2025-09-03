@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs};
 
-use chrono::{DateTime, Local as LocalTZ, NaiveDate, NaiveTime, TimeZone};
+use chrono::{DateTime, Local as LocalTZ, NaiveDate, NaiveTime, TimeDelta, TimeZone};
 use clap::{Args, Parser, Subcommand};
 use cli_table::{Cell, CellStruct, Style, Table};
 use uuid::Uuid;
@@ -310,17 +310,20 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
 
     let mut total_duration: u32 = 0;
     let mut rows: Vec<Vec<CellStruct>> = vec![];
+    let now = LocalTZ::now();
     for session in sessions.into_iter() {
         let start_dt = LocalTZ.timestamp_opt(session.start_at, 0).unwrap();
 
         let mut end_string: Option<String> = None;
-        let mut duration: u32 = 0;
+        let duration_delta: TimeDelta;
         if let Some(end_at) = session.end_at {
             let end_dt = LocalTZ.timestamp_opt(end_at, 0).unwrap();
-            let duration_delta = end_dt - start_dt;
             end_string = Some(end_dt.format(DATETIME_FORMAT).to_string());
-            duration = duration_delta.num_minutes() as u32;
+            duration_delta = end_dt - start_dt;
+        } else {
+            duration_delta = now - start_dt;
         }
+        let duration = duration_delta.num_minutes() as u32;
         total_duration += duration;
 
         rows.push(vec![
@@ -331,7 +334,7 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
                 Some(x) => x.cell(),
                 None => "".cell(),
             },
-            format_duration(duration).cell(),
+            format_duration(duration, session.end_at.is_none(), "\n").cell(),
             match session.note {
                 Some(ref x) => {
                     let max_width = get_pprint_note_cell_maxlength();
@@ -350,11 +353,11 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
         "Note".cell().bold(true),
     ]);
     println!(
-        "{}\nTotal duration of ended sessions: {}.",
+        "{}\nTotal duration: {}.",
         table
             .display()
             .expect("Could not build a table with sessions."),
-        format_duration(total_duration),
+        format_duration(total_duration, false, " "),
     );
 }
 
@@ -365,14 +368,22 @@ fn get_datetime_from_date_str(date_str: &str, time: NaiveTime) -> DateTime<Local
     date.and_time(time).and_local_timezone(LocalTZ).unwrap()
 }
 
-fn format_duration(value: u32) -> String {
-    let hours = value / 60;
-    let minutes = value % 60;
-    if hours > 0 {
-        format!("{hours} hours {minutes} minutes")
-    } else {
-        format!("{minutes} minutes")
+fn format_duration(value: u32, still_running: bool, separator: &str) -> String {
+    let mut parts: Vec<String> = vec![];
+
+    if still_running {
+        parts.push("for now".to_string());
     }
+
+    let hours = value / 60;
+    if hours > 0 {
+        parts.push(format!("{hours} hours"));
+    }
+
+    let minutes = value % 60;
+    parts.push(format!("{minutes} minutes"));
+
+    return parts.join(separator);
 }
 
 fn built_multilined_note(text: &str, max_width: usize) -> String {

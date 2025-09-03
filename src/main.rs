@@ -38,8 +38,8 @@ struct SessionArgs {
 
 #[derive(Subcommand)]
 enum SessionCommands {
-    /// Print a pretty representation of all sessions info.
-    Pprint {
+    /// Display all sessions in a table format.
+    Table {
         /// Display the sessions which were started this day or later. The range is inclusive.
         #[arg(long, value_name = "dd.mm.yyyy or today")]
         from: Option<String>,
@@ -65,7 +65,7 @@ enum SessionCommands {
         #[arg(long)]
         note: Option<String>,
     },
-    /// Add a note to a session.
+    /// Update the note of a session.
     Note {
         /// A running session identifier.
         #[arg(long)]
@@ -83,7 +83,7 @@ struct LabelArgs {
 
 #[derive(Subcommand)]
 enum LabelCommands {
-    /// Display all available labels.
+    /// Display a list of available labels.
     List {},
     /// Create a new label.
     Create { name: String },
@@ -215,7 +215,7 @@ impl Store {
         Ok(session)
     }
 
-    fn add_note(&mut self, id: &str, note: String) -> Result<()> {
+    fn update_note(&mut self, id: &str, note: String) -> Result<()> {
         let session = self.get_session_by_id(id)?;
         session.note = Some(note);
         Ok(())
@@ -422,7 +422,7 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         MainCommands::Session(session) => match session.command {
-            SessionCommands::Pprint { from, to, labels } => print_sessions(from, to, labels),
+            SessionCommands::Table { from, to, labels } => print_sessions(from, to, labels),
             SessionCommands::Start { labels } => {
                 let mut store = Store::from_store_file().unwrap();
                 let session = store.start_session(labels).unwrap();
@@ -437,7 +437,7 @@ fn main() {
             }
             SessionCommands::Note { id, text } => {
                 let mut store = Store::from_store_file().unwrap();
-                store.add_note(&id, text).unwrap();
+                store.update_note(&id, text).unwrap();
                 println!("Updated.");
                 store.save().unwrap();
             }
@@ -445,7 +445,7 @@ fn main() {
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => {
                 let store = Store::from_store_file().unwrap();
-                println!("{}", store.labels.join("\t"));
+                println!("{}", store.labels.join("\n"));
             }
             LabelCommands::Create { name } => {
                 let mut store = Store::from_store_file().unwrap();

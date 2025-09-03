@@ -445,7 +445,7 @@ fn main() {
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => {
                 let store = Store::from_store_file().unwrap();
-                println!("{}", store.labels.join("\t"));
+                println!("{}", store.labels.join("\n"));
             }
             LabelCommands::Create { name } => {
                 let mut store = Store::from_store_file().unwrap();

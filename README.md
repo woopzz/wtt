@@ -33,5 +33,5 @@ $HOME/repos/wtt/target/release/wtt "$@"
 Also I have an alias to the most used command in my Bash config.
 
 ```bash
-alias wttt="wtt session pprint --from today"
+alias wttt="wtt session table --from today"
 ```

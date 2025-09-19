@@ -87,6 +87,16 @@ enum LabelCommands {
     List {},
     /// Remove a label from all sessions.
     Remove { name: String },
+    /// Merge one or more source labels into one target label.
+    /// Source labels will be removed from all sessions that have them,
+    /// and the target label will be added to those sessions.
+    Merge {
+        /// Labels that will be removed.
+        #[arg(short, long)]
+        source: Vec<String>,
+        /// A label that will be added to the sessions that have source labels.
+        target: String,
+    },
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
@@ -236,6 +246,24 @@ impl Store {
             session.labels.retain(|x| *x != name);
             count += u32::try_from(count_before - session.labels.len()).unwrap();
         }
+        Ok(count)
+    }
+
+    fn merge_labels(&mut self, source: Vec<String>, target: String) -> Result<u32> {
+        let mut count: u32 = 0;
+        let sourceset: HashSet<&str> = source.iter().map(|x| x.as_str()).collect();
+
+        for session in &mut self.sessions {
+            let count_before = session.labels.len();
+            session.labels.retain(|x| !sourceset.contains(x.as_str()));
+
+            let removed_count = u32::try_from(count_before - session.labels.len()).unwrap();
+            if (removed_count) > 0 {
+                count += removed_count;
+                session.labels.push(target.clone());
+            }
+        }
+
         Ok(count)
     }
 }
@@ -428,6 +456,17 @@ fn main() {
                 let removed_count = store.remove_label(&name).unwrap();
                 store.save().unwrap();
                 println!("Removed {} labels.", removed_count);
+            }
+            LabelCommands::Merge { source, target } => {
+                if (source.len()) == 0 {
+                    println!("No source labels were provided. Nothing changed.");
+                    return;
+                }
+
+                let mut store = Store::from_store_file().unwrap();
+                let replaced_count = store.merge_labels(source, target).unwrap();
+                store.save().unwrap();
+                println!("Replaced {} labels.", replaced_count,);
             }
         },
     }

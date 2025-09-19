@@ -83,21 +83,25 @@ struct LabelArgs {
 
 #[derive(Subcommand)]
 enum LabelCommands {
-    /// Display a list of available labels.
+    /// Display a list of all labels.
     List {},
-    /// Create a new label.
-    Create { name: String },
-    /// Delete an existing label.
-    Delete {
-        #[arg(long)]
-        name: String,
+    /// Remove a label from all sessions.
+    Remove { name: String },
+    /// Merge one or more source labels into one target label.
+    /// Source labels will be removed from all sessions that have them,
+    /// and the target label will be added to those sessions.
+    Merge {
+        /// Labels that will be removed.
+        #[arg(short, long)]
+        source: Vec<String>,
+        /// A label that will be added to the sessions that have source labels.
+        target: String,
     },
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct Store {
     sessions: Vec<Session>,
-    labels: Vec<String>,
 }
 
 impl Store {
@@ -107,10 +111,7 @@ impl Store {
         let file_exists = fs::exists(&path)
             .map_err(|x| format!("Could not check the database file {}. {}", &path, x))?;
         if !file_exists {
-            return Ok(Self {
-                sessions: vec![],
-                labels: vec![],
-            });
+            return Ok(Self { sessions: vec![] });
         }
 
         let file = std::fs::File::open(&path)
@@ -172,17 +173,6 @@ impl Store {
     }
 
     fn start_session(&mut self, labels: Vec<String>) -> Result<&Session> {
-        let unknown_labels: Vec<&str> = labels
-            .iter()
-            .filter_map(|x| (!self.labels.contains(x)).then_some(x.as_str()))
-            .collect();
-        if unknown_labels.len() > 0 {
-            return Err(format!(
-                "Unknown labels: {}. You must create labels before using them.",
-                unknown_labels.join(", ")
-            )
-            .into());
-        }
         let id = Uuid::new_v4();
         let now: DateTime<_> = LocalTZ::now();
         let session = Session {
@@ -241,27 +231,40 @@ impl Store {
         }
     }
 
-    fn add_label(&mut self, name: String) -> Result<()> {
-        if self.labels.contains(&name) {
-            return Err(format!("The label '{}' has been already created.", &name).into());
-        }
-        self.labels.push(name);
-        Ok(())
+    fn get_all_labels(&self) -> HashSet<&str> {
+        self.sessions
+            .iter()
+            .flat_map(|x| &x.labels)
+            .map(|x| x.as_str())
+            .collect::<HashSet<&str>>()
     }
 
-    fn delete_label(&mut self, name: &str) -> Result<()> {
-        let count_before = self.labels.len();
-        self.labels.retain(|x| x != name);
-
-        if self.labels.len() == count_before {
-            return Err(format!("The label '{}' was not found.", name).into());
+    fn remove_label(&mut self, name: &str) -> Result<u32> {
+        let mut count: u32 = 0;
+        for session in &mut self.sessions {
+            let count_before = session.labels.len();
+            session.labels.retain(|x| *x != name);
+            count += u32::try_from(count_before - session.labels.len()).unwrap();
         }
+        Ok(count)
+    }
+
+    fn merge_labels(&mut self, source: Vec<String>, target: String) -> Result<u32> {
+        let mut count: u32 = 0;
+        let sourceset: HashSet<&str> = source.iter().map(|x| x.as_str()).collect();
 
         for session in &mut self.sessions {
-            session.labels.retain(|x| *x != name);
+            let count_before = session.labels.len();
+            session.labels.retain(|x| !sourceset.contains(x.as_str()));
+
+            let removed_count = u32::try_from(count_before - session.labels.len()).unwrap();
+            if (removed_count) > 0 {
+                count += removed_count;
+                session.labels.push(target.clone());
+            }
         }
 
-        Ok(())
+        Ok(count)
     }
 }
 
@@ -445,19 +448,25 @@ fn main() {
         MainCommands::Label(label) => match label.command {
             LabelCommands::List {} => {
                 let store = Store::from_store_file().unwrap();
-                println!("{}", store.labels.join("\n"));
+                let labels = store.get_all_labels();
+                println!("{}", labels.into_iter().collect::<Vec<&str>>().join("\n"));
             }
-            LabelCommands::Create { name } => {
+            LabelCommands::Remove { name } => {
                 let mut store = Store::from_store_file().unwrap();
-                store.add_label(name.clone()).unwrap();
+                let removed_count = store.remove_label(&name).unwrap();
                 store.save().unwrap();
-                println!("The label '{}' is created.", &name);
+                println!("Removed {} labels.", removed_count);
             }
-            LabelCommands::Delete { name } => {
+            LabelCommands::Merge { source, target } => {
+                if (source.len()) == 0 {
+                    println!("No source labels were provided. Nothing changed.");
+                    return;
+                }
+
                 let mut store = Store::from_store_file().unwrap();
-                store.delete_label(&name).unwrap();
+                let replaced_count = store.merge_labels(source, target).unwrap();
                 store.save().unwrap();
-                println!("The label '{}' was successfully deleted.", &name);
+                println!("Replaced {} labels.", replaced_count,);
             }
         },
     }

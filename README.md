@@ -59,13 +59,7 @@ alias wttt="wtt session table --from today"
 # so I suggest creating an alias for the command.
 $ wtt session table --from today
 
-# Create a new label.
-$ wtt label create personal-project
-
-# Display the list of labels to confirm that it was created.
-$ wtt label list
-
-# Start a new session with the label we just created.
+# Start new session with a label.
 $ wtt session start -l personal-project
 
 # Do your work.

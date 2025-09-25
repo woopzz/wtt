@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs};
 
-use chrono::{DateTime, Local as LocalTZ, NaiveDate, NaiveTime, TimeDelta, TimeZone};
+use chrono::{DateTime, Duration, Local as LocalTZ, NaiveDate, NaiveTime, TimeDelta, TimeZone};
 use clap::{Args, Parser, Subcommand};
 use cli_table::{Cell, CellStruct, Style, Table};
 use uuid::Uuid;
@@ -41,7 +41,7 @@ enum SessionCommands {
     /// Display all sessions in a table format.
     Table {
         /// Display the sessions which were started this day or later. The range is inclusive.
-        #[arg(long, value_name = "dd.mm.yyyy or today")]
+        #[arg(long, value_name = "dd.mm.yyyy or today or yesterday")]
         from: Option<String>,
         /// Display the sessions which were started this day or earlier. The range is inclusive.
         #[arg(long, value_name = "dd.mm.yyyy")]
@@ -299,6 +299,12 @@ fn print_sessions(from: Option<String>, to: Option<String>, labels: Vec<String>)
                     .unwrap()
                     .timestamp(),
             );
+        }
+        if x == "yesterday" {
+            let now = LocalTZ::now()
+                .with_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap())
+                .unwrap();
+            return Some((now - Duration::days(1)).timestamp());
         }
         Some(get_datetime_from_date_str(x, NaiveTime::from_hms_opt(0, 0, 0).unwrap()).timestamp())
     });
